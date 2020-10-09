@@ -10,6 +10,9 @@ import com.facebook.react.modules.core.DeviceEventManagerModule;
 import com.facebook.react.bridge.WritableMap;
 import com.facebook.react.bridge.Arguments;
 
+/** For reference on ff packages, 
+ * @see https://developer.android.com/reference/packages
+ */
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
 import android.bluetooth.BluetoothProfile;
@@ -46,47 +49,73 @@ public class BleModule extends ReactContextBaseJavaModule {
         return "BleModule";
     }
 
-    private BluetoothLeAdvertiser advertiser;
-    private BluetoothManager mBluetoothManager;
+    private BluetoothLeAdvertiser advertiser; // for performing BLE advertising operations
+    private BluetoothManager mBluetoothManager; // to obtain an instance of device's BT adapter
     private BluetoothGattServer mBluetoothGattServer;
 
     private ReactApplicationContext reactContext;
-
-    private static UUID SERVICE_UUID = UUID.fromString("0000ff01-0000-1000-8000-00805F9B34FB");
+    
+    /** A BLE Service is defined as fixed structure to which information about
+     * a utility shall be bundled. It is analogous to JSON formatting in API exchanges.
+     * A Service-UUID is a unique number that identifies services, so as centrals 
+     * can inform a peripheral of which services it provides.
+     * @see https://devzone.nordicsemi.com/nordic/short-range-guides/b/bluetooth-low-energy/posts/ble-services-a-beginners-tutorial
+     */
+    private static UUID SERVICE_UUID = UUID.fromString("0000ff01-0000-1000-8000-00805F9B34FB"); //TODO: How was 0xff01 determined?
     private static String device_name = "";
 
     private void sendEvent(ReactContext reactContext, String eventName, WritableMap params) {
         reactContext.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter.class).emit(eventName, params);
     }
 
-    @ReactMethod
+
+    // Unused method 
+    @ReactMethod // Annotation for exposing Java methods to JS
     public void getDeviceName(Callback getNameCallBack) {
         String currentDeviceName = BluetoothAdapter.getDefaultAdapter().getName();
         getNameCallBack.invoke(currentDeviceName);
     }
 
+    /**
+     * Setups preferences, packet-data, scan-response of BLE advertisement, then begins broadcast. 
+     * @param   deviceName name of device to be included in advertisement packet.
+     * @param   advCallBack JS defined; calls resolve() when invoked with arg0=true.
+     *
+     * @see https://developer.android.com/reference/android/bluetooth/le/BluetoothLeAdvertiser
+     * @see https://reactnative.dev/docs/native-modules-android#callbacks
+     */
     @ReactMethod
     public void advertise(String deviceName, Callback advCallBack) {
-        BluetoothAdapter bluetoothAdapter = mBluetoothManager.getAdapter();
-        advertiser = bluetoothAdapter.getBluetoothLeAdvertiser();
+        // Initialize local device Bluetooth adapter
+        BluetoothAdapter bluetoothAdapter = mBluetoothManager.getAdapter();  
+        advertiser = bluetoothAdapter.getBluetoothLeAdvertiser(); // object for BLE advertising operations
         if (advertiser == null) {
             Toast.makeText(getReactApplicationContext(), "Failed to create advertiser", Toast.LENGTH_SHORT).show();
             return;
         }
+
+        // Set advertising preferences for the BLE advertiser instance
         AdvertiseSettings advertiseSettings = new AdvertiseSettings.Builder()
-                .setAdvertiseMode(AdvertiseSettings.ADVERTISE_MODE_BALANCED)
-                .setTxPowerLevel(AdvertiseSettings.ADVERTISE_TX_POWER_HIGH).setConnectable(true).build();
+                .setAdvertiseMode(AdvertiseSettings.ADVERTISE_MODE_BALANCED) // balance advertising freq and power consumption
+                .setTxPowerLevel(AdvertiseSettings.ADVERTISE_TX_POWER_HIGH) // advertise to largest visibility range
+                .setConnectable(true).build(); // allow connection establishment with peripheral devices
+
+        // convert device name to array of utf8-bytes, to be included in advert data
         device_name = deviceName;
         String serviceDataString = device_name;
+        byte[] serviceData = serviceDataString.getBytes(Charset.forName("UTF-8")); 
 
-        byte[] serviceData = serviceDataString.getBytes(Charset.forName("UTF-8"));
-
+        // Populate data packet to be advertised
         AdvertiseData advertiseData = new AdvertiseData.Builder().setIncludeDeviceName(false)
-                .addServiceUuid(new ParcelUuid(SERVICE_UUID)).addServiceData(new ParcelUuid(SERVICE_UUID), serviceData)
-                .setIncludeTxPowerLevel(true).build();
+                .addServiceUuid(new ParcelUuid(SERVICE_UUID)) // include Service-UUID; see explanation in declaration above
+                .addServiceData(new ParcelUuid(SERVICE_UUID), serviceData) // include deviceName as service data
+                .setIncludeTxPowerLevel(true).build(); // include transmission power level (TODO: to estimate distance?)
 
+        // Scan-response data is requested/sent as a 2nd advertising packet to peripherals that were 
+        // scanned to have detected the first ad-packet
         AdvertiseData scanResponseData = new AdvertiseData.Builder().setIncludeDeviceName(true).build();
-
+  
+        // Wrap AdvertiseCallback with JS defined advCallBack, and Toast/Log message to deliver advert status
         AdvertiseCallback advertiseCallback = new AdvertiseCallback() {
             @Override
             public void onStartSuccess(AdvertiseSettings settingsInEffect) {
@@ -95,22 +124,25 @@ public class BleModule extends ReactContextBaseJavaModule {
                 // advertiseData.getServiceData().toString()
                 // +"\n UUIDs: \n" + advertiseData.getServiceUuids().toString();
                 String advString = settingsInEffect.toString() + "\n Advertised Data \n" + advertiseData.toString();
-                advCallBack.invoke(true, advString);
+                advCallBack.invoke(true, advString); // in App.js, will lead to resolve()
             }
 
             @Override
             public void onStartFailure(int errorCode) {
-                advCallBack.invoke(false, errorCode);
+                advCallBack.invoke(false, errorCode); 
                 Toast.makeText(getReactApplicationContext(), "Failed to start advertiser.", Toast.LENGTH_SHORT).show();
-                super.onStartFailure(errorCode);
+                super.onStartFailure(errorCode); // in App.js, will lead to .catch(reject()))
             }
         };
 
-        // advertiser.startAdvertising(advertiseSettings, advertiseData,
-        // advertiseCallback);
+        // Begin broadcast
         advertiser.startAdvertising(advertiseSettings, advertiseData, scanResponseData, advertiseCallback);
     }
 
+    /**
+     * [someFunction description]
+     * @param   srvCallBack [description]
+     */
     @ReactMethod
     public void startServer(Callback srvCallBack) {
         mBluetoothGattServer = mBluetoothManager.openGattServer(getReactApplicationContext(), mGattServerCallback);
@@ -169,7 +201,10 @@ public class BleModule extends ReactContextBaseJavaModule {
         };
     };
 
-    // Custom function that we are going to export to JS
+    /**
+     * [someFunction description]
+     * @param   successCallback [description]
+     */
     @ReactMethod
     public void isAdvertisingSupported(Callback successCallback) {
         if (!BluetoothAdapter.getDefaultAdapter().isMultipleAdvertisementSupported()) {
@@ -190,6 +225,10 @@ public class BleModule extends ReactContextBaseJavaModule {
     private boolean srv = false;
     private int err;
 
+    /**
+     * [someFunction description]
+     * @param   advsrvCallBack [description]
+     */
     @ReactMethod
     public void stopBroadcastingGATT(Callback advsrvCallBack) {
 

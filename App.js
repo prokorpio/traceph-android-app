@@ -458,12 +458,12 @@ const App = () => {
     new Promise((resolve, reject) => {
       if (isBleSupportedRef.current) {
         BleModule.advertise(nodeIdRef.current, (res, err) => {
-          if (res) {
+          if (res) { // if advert successfully started
             console.log('advertising');
             resolve();
-          }
+          } 
         });
-      } else {
+      } else { // if not supported
         reject();
       }
     });
