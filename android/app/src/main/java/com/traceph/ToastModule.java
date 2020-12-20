@@ -17,7 +17,7 @@ public class ToastModule extends ReactContextBaseJavaModule {
         return "ToastModule";
     }
 
-    // Custom function that we are going to export to JS
+    // Custom function that we are going to expose to JS
     @ReactMethod
     public void showToast(String message) {
         Toast.makeText(getReactApplicationContext(), message, Toast.LENGTH_SHORT).show();
